@@ -1,3 +1,5 @@
+import csv
+import os
 import time
 import requests
 from bs4 import BeautifulSoup
@@ -59,11 +61,10 @@ class Main():
 
             store_list.append(store_info)
 
-        # TODO 結果のCSV出力
+        # 結果のCSV出力
+        self.output_csv(store_list)
 
-        print(store_list)
-
-        return
+        return True
 
     def get_weather(self):
         '''
@@ -119,7 +120,7 @@ class Main():
             # ヘッドレスでブラウザ起動
             chrome_options = Options()
             chrome_options.add_argument('--headless')
-            driver = webdriver.Chrome(options=chrome_options)
+            driver = webdriver.Chrome(options = chrome_options)
 
             # さわやかのページ情報を取得
             driver.get('https://www.genkotsu-hb.com/shop/')
@@ -181,30 +182,77 @@ class Main():
         Returns:
             consecutive_holidays(int): 今日の休みは何連休か
             holiday_count(int): 今日は連休の何日目か
+            connect_consecutive_holidays(int): 3日の休みを今日の休みは何連休か
 
         '''
         # 現在の日付が平日であれば0, 0を返す
         if not str(now.date()) in holiday_list and now.weekday() < 5:
             return 0, 0
 
-        # 連休日数と連休何日目の変数を初期化
+        # 連休日数
         consecutive_holidays = 0
+        # 連休何日目か
         holiday_count = 0
+        # 平日3日間以内は有給と仮定した場合の連休日数
+        connect_consecutive_holidays = 0
+        # 平日3日間以内は有給と仮定した場合の連休何日目か
+        connect_holiday_count = 0
 
         # 過去の日付の休日・祝日チェック
         current_date = now.date()
-        while str(current_date) in holiday_list or current_date.weekday() >= 5:
-            consecutive_holidays += 1
-            holiday_count += 1
+        # 実質連休フラグ
+        consecutive_flag = True
+        # 平日カウンター
+        weekday_conut = 0
+        while True:
+            # 今日が休日か祝日か
+            if str(current_date) in holiday_list or current_date.weekday() >= 5:
+                if consecutive_flag:
+                    consecutive_holidays += 1
+                    holiday_count += 1
+                weekday_conut = 0
+            else:
+                consecutive_flag = False
+                weekday_conut += 1
+            connect_consecutive_holidays += 1
+            connect_holiday_count += 1
+
+            if weekday_conut == 3:
+                connect_consecutive_holidays -= 3
+                connect_holiday_count -= 3
+                break
+
+            # 1日戻す
             current_date -= timedelta(days = 1)
+
 
         # 未来の日付の休日・祝日チェック
         feture_date = now.date() + timedelta(days = 1)
-        while str(feture_date) in holiday_list or feture_date.weekday() >= 5:
-            consecutive_holidays += 1
+        # フラグ／カウンターリセット
+        consecutive_flag = True
+        weekday_conut = 0
+        while True:
+            # 今日が休日か祝日か
+            if str(current_date) in holiday_list or current_date.weekday() >= 5:
+                if consecutive_flag:
+                    consecutive_holidays += 1
+                    holiday_count += 1
+                weekday_conut = 0
+            else:
+                consecutive_flag = False
+                weekday_conut += 1
+            connect_consecutive_holidays += 1
+            connect_holiday_count += 1
+
+            if weekday_conut == 3:
+                connect_consecutive_holidays -= 3
+                connect_holiday_count -= 3
+                break
+
+            # 1日進める
             feture_date += timedelta(days = 1)
 
-        return consecutive_holidays, holiday_count
+        return consecutive_holidays, holiday_count, connect_consecutive_holidays, connect_holiday_count
 
     def correction_holidays(self, holiday_list, now):
         '''
@@ -265,13 +313,33 @@ class Main():
 
         return add_dict
 
+    def output_csv(self, data):
+        '''
+        dict型のデータをCSVへ出力する
 
+        Args:
+            data(list[dict{},dict{},...]): dictで保持されているデータのlist
+
+        '''
+
+        # 格納先のCSVのパスを指定
+        file_path = './data/sawayaka_data.csv'
+
+        # 既に引数のファイルが存在する場合は追記、そうでない場合は上書き（新規作成）
+        mode = 'a' if os.path.exists(file_path) else 'w'
+
+        with open(file_path, mode, encoding = 'UTF-8', newline = '') as csvfile:
+            fieldnames = data[0].keys() if data else []
+            writer = csv.DictWriter(csvfile, fieldnames = fieldnames)
+
+            if mode == 'w':
+                writer.writeheader()
+
+            for row in data:
+                writer.writerow(row)
+
+        return True
 
 if __name__ == '__main__':
     m = Main()
     m.main()
-    #holiday_list = {'2022-01-01': '元日', '2022-01-10': '成人の日', '2022-02-11': '建国記念の日', '2022-02-23': '天皇誕生日', '2022-03-21': '春分の日', '2022-04-29': '昭和の日', '2022-05-03': '憲法記念日', '2022-05-04': 'みどりの日', '2022-05-05': 'こどもの日', '2022-07-18': '海の日', '2022-08-11': '山の日', '2022-09-19': '敬老の日', '2022-09-23': '秋分の日', '2022-10-10': 'スポーツの日', '2022-11-03': '文化の日', '2022-11-23': '勤労感謝の日', '2023-01-01': '元日', '2023-01-02': '休日 元日', '2023-01-09': '成人の日', '2023-02-11': '建国記念の日', '2023-02-23': '天皇誕生日', '2023-03-21': '春分の日', '2023-04-29': '昭和の日', '2023-05-03': '憲法記念日', '2023-05-04': 'みどりの日', '2023-05-05': 'こどもの日', '2023-07-17': '海の日', '2023-08-11': '山の日', '2023-09-18': '敬老の日', '2023-09-23': '秋分の日', '2023-10-09': 'スポーツの日', '2023-11-03': '文化の日', '2023-11-23': '勤労感謝の日', '2024-01-01': '元日', '2024-01-08': '成人の日', '2024-02-11': '建国記念の日', '2024-02-12': '建国記念の日 振替休日', '2024-02-23': '天皇誕生日', '2024-03-20': '春分の日', '2024-04-29': '昭和の日', '2024-05-03': '憲法記念日', '2024-05-04': 'みどりの日', '2024-05-05': 'こどもの日', '2024-05-06': 'こどもの日 振替休日', '2024-07-15': '海の日', '2024-08-11': '山の日', '2024-08-12': '休日 山の日', '2024-09-16': '敬老の日', '2024-09-22': '秋分の日', '2024-09-23': '秋分の日 振替休日', '2024-10-14': 'スポーツの日', '2024-11-03': '文化の日', '2024-11-04': '文化の日 振替休日', '2024-11-23': '勤労感謝の日'}
-
-    #now = datetime.utcnow() + timedelta(hours = 9)
-
-    #print(m.correction_holidays(holiday_list, now - timedelta(days = 9)))
