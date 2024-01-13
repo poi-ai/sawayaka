@@ -1,0 +1,2 @@
+# さわやかの営業時間は最長で7:00~23:00
+*/10 7-23 * * * /usr/local/bin/python3 /home/sawayaka/main.py
