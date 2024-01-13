@@ -1,4 +1,5 @@
 import csv
+import log
 import os
 import time
 import requests
@@ -10,8 +11,11 @@ from selenium.webdriver.chrome.options import Options
 ###### 待ち時間情報取得／CSV記録用 ######
 
 class Main():
+    def __init__(self):
+        self.log = log.Log()
 
     def main(self):
+        self.log.info('さわやか待ち時間記録スクリプト開始')
         # Open Meteo APIから天候情報の取得
         weather_info = self.get_weather()
         if weather_info == False:
@@ -33,8 +37,6 @@ class Main():
 
         # 連休情報の計算
         consecutive_holidays, holiday_count, connect_consecutive_holidays, connect_holiday_count = self.calc_holidays(holiday_list, now)
-
-        # TODO 接続連休計算
 
         # 各店舗情報をリストに格納
         store_list = []
@@ -63,6 +65,8 @@ class Main():
 
         # 結果のCSV出力
         self.output_csv(store_list)
+
+        self.log.info('さわやか待ち時間記録スクリプト終了')
 
         return True
 
@@ -93,17 +97,17 @@ class Main():
         try:
             r = requests.get(weather_api_url, params = weather_api_params)
         except Exception as e:
-            print(f'天候情報取得APIエラー\n{e}')
+            self.log.error(f'天候情報取得APIエラー\n{e}')
             return False
 
         if r.status_code != 200:
-            print(f'天候情報取得APIエラー ステータスコード: {r.status_code}')
+            self.log.error(f'天候情報取得APIエラー ステータスコード: {r.status_code}')
             return False
 
         weather_info = r.json()['current']
 
         if len(weather_info) == 0:
-            print(f'天候情報取得APIエラー レスポンス情報が空')
+            self.log.error(f'天候情報取得APIエラー レスポンス情報が空')
             return False
 
         return weather_info
@@ -137,10 +141,10 @@ class Main():
             soup = BeautifulSoup(html_after_execution, 'html.parser')
 
             if len(soup) == 0:
-                print('さわやかHPから待ち時間情報の取得に失敗 レスポンスが空')
+                self.log.error('さわやかHPから待ち時間情報の取得に失敗 レスポンスが空')
                 return False
         except Exception as e:
-            print(f'さわやかHPから待ち時間情報の取得に失敗\n{e}')
+            self.log.error(f'さわやかHPから待ち時間情報の取得に失敗\n{e}')
             return False
 
         return soup
@@ -156,17 +160,17 @@ class Main():
         try:
             r = requests.get('https://holidays-jp.github.io/api/v1/date.json')
         except Exception as e:
-            print(f'祝日情報取得APIエラー\n{e}')
+            self.log.error(f'祝日情報取得APIエラー\n{e}')
             return False
 
         if r.status_code != 200:
-            print(f'祝日情報取得APIエラー ステータスコード: {r.status_code}')
+            self.log.error(f'祝日情報取得APIエラー ステータスコード: {r.status_code}')
             return False
 
         holidays = r.json()
 
         if len(holidays) == 0:
-            print(f'祝日情報取得APIエラー レスポンス情報が空')
+            self.log.error(f'祝日情報取得APIエラー レスポンス情報が空')
             return False
 
         return holidays
