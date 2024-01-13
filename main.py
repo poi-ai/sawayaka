@@ -32,7 +32,7 @@ class Main():
         holiday_list = self.correction_holidays(holiday_list, now)
 
         # 連休情報の計算
-        consecutive_holidays, holiday_count = self.calc_holidays(holiday_list, now)
+        consecutive_holidays, holiday_count, connect_consecutive_holidays, connect_holiday_count = self.calc_holidays(holiday_list, now)
 
         # TODO 接続連休計算
 
@@ -40,24 +40,24 @@ class Main():
         store_list = []
         for store in soup.find_all('div', class_ = 'shop_info'):
             store_info = {}
-            store_info['store_name'] = store.find('span', class_ = 'name').text                   # 店舗名
-            store_info['wait_time'] = store.find('p', 'time').find('span', class_ = 'num').text   # 待ち時間(分)
-            store_info['wait_count'] = store.find('p', 'set').find('span', class_ = 'num').text   # 待ち組数(組)
-            store_info['temperature'] = weather_info['temperature_2m']                            # 気温
-            store_info['relative_humidity'] = weather_info['relative_humidity_2m']                # 湿度(%)
-            store_info['precipitation'] = weather_info['precipitation']                           # 降水量(雨+雪)
-            store_info['rain'] = weather_info['rain']                                             # 降雨量
-            store_info['snowfall'] = weather_info['snowfall']                                     # 降雪量
-            store_info['weather_code'] = weather_info['weather_code']                             # 天気コード
-            store_info['month'] = now.month                                                       # 月
-            store_info['day'] = now.day                                                           # 日(管理用で学習には使わない予定)
-            store_info['hour'] = now.hour                                                         # 時
-            store_info['minute'] = now.minute                                                     # 分(管理用で学習には使わない)
-            store_info['weekday'] = now.weekday()                                                 # 曜日フラグ(月～日)
-            store_info['consecutive_holidays'] = consecutive_holidays                             # 連休日数
-            store_info['holiday_count'] = holiday_count                                           # 連休何日目
-            # TODO 接続連休日数(平日3日休みにすると最大何連休になるか)
-            # TODO 接続連休何日目
+            store_info['store_name'] = store.find('span', class_ = 'name').text                                      # 店舗名
+            store_info['wait_time'] = store.find('p', 'time').find('span', class_ = 'num').text.replace('-', '-1')   # 待ち時間(分)
+            store_info['wait_count'] = store.find('p', 'set').find('span', class_ = 'num').text.replace('-', '-1')   # 待ち組数(組)
+            store_info['temperature'] = weather_info['temperature_2m']                                               # 気温
+            store_info['relative_humidity'] = weather_info['relative_humidity_2m']                                   # 湿度(%)
+            store_info['precipitation'] = weather_info['precipitation']                                              # 降水量(雨+雪)
+            store_info['rain'] = weather_info['rain']                                                                # 降雨量
+            store_info['snowfall'] = weather_info['snowfall']                                                        # 降雪量
+            store_info['weather_code'] = weather_info['weather_code']                                                # 天気コード
+            store_info['month'] = now.month                                                                          # 月
+            store_info['day'] = now.day                                                                              # 日(管理用で学習には使わない予定)
+            store_info['hour'] = now.hour                                                                            # 時
+            store_info['minute'] = now.minute                                                                        # 分(管理用で学習には使わない)
+            store_info['weekday'] = now.weekday()                                                                    # 曜日フラグ(月～日)
+            store_info['consecutive_holidays'] = consecutive_holidays                                                # 連休日数
+            store_info['holiday_count'] = holiday_count                                                              # 連休何日目
+            store_info['connect_consecutive_holidays'] = connect_consecutive_holidays                                # 3日以内の営業日を休みにした場合の連休日数
+            store_info['connect_holiday_count'] = connect_holiday_count                                              # 3日以内の営業日を休みにした場合の連休何日目
 
             store_list.append(store_info)
 
@@ -182,34 +182,36 @@ class Main():
         Returns:
             consecutive_holidays(int): 今日の休みは何連休か
             holiday_count(int): 今日は連休の何日目か
-            connect_consecutive_holidays(int): 3日の休みを今日の休みは何連休か
+            connect_consecutive_holidays(int): 3日以内の営業日を休みにした場合の連休日数
+            connect_holiday_count(int): 3日以内の営業日を休みにした場合の連休何日目か
 
         '''
-        # 現在の日付が平日であれば0, 0を返す
-        if not str(now.date()) in holiday_list and now.weekday() < 5:
-            return 0, 0
-
         # 連休日数
         consecutive_holidays = 0
         # 連休何日目か
         holiday_count = 0
-        # 平日3日間以内は有給と仮定した場合の連休日数
+        # 3日以内の営業日を休みにした場合の連休日数
         connect_consecutive_holidays = 0
-        # 平日3日間以内は有給と仮定した場合の連休何日目か
+        # 3日以内の営業日を休みにした場合の連休何日目か
         connect_holiday_count = 0
 
-        # 過去の日付の休日・祝日チェック
+        # 今日の日付
         current_date = now.date()
-        # 実質連休フラグ
+        # 今日の休日フラグ
+        today_flag = False
+        # 連休フラグ
         consecutive_flag = True
         # 平日カウンター
         weekday_conut = 0
+
+        # 今日の日付以前の休日・祝日チェック
         while True:
-            # 今日が休日か祝日か
+            # 休日あるいは祝日か
             if str(current_date) in holiday_list or current_date.weekday() >= 5:
                 if consecutive_flag:
                     consecutive_holidays += 1
                     holiday_count += 1
+                    today_flag = True
                 weekday_conut = 0
             else:
                 consecutive_flag = False
@@ -217,36 +219,35 @@ class Main():
             connect_consecutive_holidays += 1
             connect_holiday_count += 1
 
-            if weekday_conut == 3:
-                connect_consecutive_holidays -= 3
-                connect_holiday_count -= 3
+            # 4日以上平日が続いたら探索終了
+            if weekday_conut == 4:
+                connect_consecutive_holidays -= 4
+                connect_holiday_count -= 4
                 break
 
             # 1日戻す
             current_date -= timedelta(days = 1)
 
-
-        # 未来の日付の休日・祝日チェック
+        # 明日の日付
         feture_date = now.date() + timedelta(days = 1)
         # フラグ／カウンターリセット
-        consecutive_flag = True
+        consecutive_flag = today_flag
         weekday_conut = 0
+
+        # 明日の日付以降の休日・祝日チェック
         while True:
-            # 今日が休日か祝日か
-            if str(current_date) in holiday_list or current_date.weekday() >= 5:
+            # 休日あるいは祝日か
+            if str(feture_date) in holiday_list or feture_date.weekday() >= 5:
                 if consecutive_flag:
-                    consecutive_holidays += 1
-                    holiday_count += 1
+                    consecutive_holidays += 1  # 連休日数
                 weekday_conut = 0
             else:
                 consecutive_flag = False
                 weekday_conut += 1
-            connect_consecutive_holidays += 1
-            connect_holiday_count += 1
+            connect_consecutive_holidays += 1 # 3連続連休日数
 
-            if weekday_conut == 3:
-                connect_consecutive_holidays -= 3
-                connect_holiday_count -= 3
+            if weekday_conut == 4:
+                connect_consecutive_holidays -= 4 # 3連続連休日数
                 break
 
             # 1日進める
