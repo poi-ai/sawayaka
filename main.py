@@ -124,6 +124,7 @@ class Main():
             # ヘッドレスでブラウザ起動
             chrome_options = Options()
             chrome_options.add_argument('--headless')
+            chrome_options.add_argument("--no-sandbox")
             driver = webdriver.Chrome(options = chrome_options)
 
             # さわやかのページ情報を取得
