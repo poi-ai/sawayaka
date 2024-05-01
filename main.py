@@ -24,7 +24,11 @@ class Main():
         # さわやかのHPから待ち時間ページのHTML取得
         soup = self.get_sawayaka_hp()
         if soup == False:
-            return
+            self.log.info('再取得します')
+            time.sleep(10)
+            soup = self.get_sawayaka_hp()
+            if soup == False:
+                return
 
         # 現在時刻を取得
         now = datetime.utcnow() + timedelta(hours = 9)
@@ -98,7 +102,13 @@ class Main():
             r = requests.get(weather_api_url, params = weather_api_params)
         except Exception as e:
             self.log.error(f'天候情報取得APIエラー\n{e}')
-            return False
+            self.log.info(f'再取得します')
+            time.sleep(10)
+            try:
+                r = requests.get(weather_api_url, params = weather_api_params)
+            except:
+                self.log.error(f'天候情報取得APIエラー\n{e}')
+                return False
 
         if r.status_code != 200:
             self.log.error(f'天候情報取得APIエラー ステータスコード: {r.status_code}')
