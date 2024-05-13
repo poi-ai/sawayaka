@@ -6,7 +6,6 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_squared_error
-from tqdm import tqdm
 
 # データの読み込み
 data = pd.read_csv('sawayaka_data.csv')
@@ -19,8 +18,8 @@ X = data.drop('wait_time', axis=1)
 y = data['wait_time']
 
 # 説明変数を数値変数とカテゴリ変数に分割
-numeric_features = ['temperature', 'relative_humidity', 'precipitation', 'rain', 'snowfall', 'month', 'hour', 'consecutive_holidays', 'holiday_count', 'connect_consecutive_holidays', 'connect_holiday_count']
-categorical_features = ['store_name', 'weather_code', 'weekday']
+numeric_features = ['temperature', 'relative_humidity', 'precipitation', 'rain', 'snowfall', 'consecutive_holidays', 'holiday_count', 'connect_consecutive_holidays', 'connect_holiday_count']
+categorical_features = ['store_name', 'weather_code', 'weekday', 'month', 'hour']
 
 # データをトレーニングセットとテストセットに分割
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -58,13 +57,13 @@ rf_pipeline.fit(X_train, y_train)
 # 勾配ブースティングの学習
 gb_pipeline.fit(X_train, y_train)
 
-# 学習したランダムフォレストのパイプラインを読み込む
-with open('rf_trained_model.pkl', 'rb') as f:
-    rf_pipeline = pickle.load(f)
+# ランダムフォレストのパイプラインをpickle形式で保存
+with open('rf_trained_model.pkl', 'wb') as f:
+    pickle.dump(rf_pipeline, f)
 
-# 学習した勾配ブースティングのパイプラインを読み込む
-with open('gb_trained_model.pkl', 'rb') as f:
-    gb_pipeline = pickle.load(f)
+# 勾配ブースティングのパイプラインをpickle形式で保存
+with open('gb_trained_model.pkl', 'wb') as f:
+    pickle.dump(gb_pipeline, f)
 
 # ランダムフォレストの性能評価
 rf_train_preds = rf_pipeline.predict(X_train)
