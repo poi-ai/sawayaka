@@ -1,3 +1,5 @@
+### 集めたデータを元に学習を行う
+
 import pandas as pd
 import pickle
 from sklearn.model_selection import train_test_split
@@ -8,7 +10,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_squared_error
 
 # データの読み込み
-data = pd.read_csv('sawayaka_data.csv')
+data = pd.read_csv('sort_sawayaka_data.csv')
 
 # 不要なカラムを削除
 data.drop(['wait_count', 'day', 'minute'], axis=1, inplace=True)
@@ -23,6 +25,7 @@ categorical_features = ['store_name', 'weather_code', 'weekday', 'month', 'hour'
 
 # データをトレーニングセットとテストセットに分割
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
 
 # パイプラインの作成
 numeric_transformer = Pipeline(steps=[
