@@ -32,6 +32,7 @@ class Main():
         for store_id in range(1, 35):
             # 待ち時間設定用
             before_wait_time = -1
+            wait_time_list = []
 
             # 時間ごとに予測を行う
             for hour in range(9, 23):
@@ -51,13 +52,15 @@ class Main():
 
                     # 加工したデータを学習済みモデルにあて、予測を行う
                     wait_time = self.prediction_wait_time(prediction_data)
-                    print(wait_time)
+                    wait_time_list.append(wait_time)
                     before_wait_time = wait_time
-            exit()
 
-        # TODO 予測データから画像の作成
+            # TODO 予測データから画像の作成
+            image_path = self.create_prediction_image(wait_time_list)
 
-        # TODO 予測データの画像投稿,URL取得
+            # TODO 予測データの画像投稿,URL取得
+            url = self.post_gyazo_api
+
 
         # TODO URLと予測データをHTMLに埋め込みWebサイトへ投稿
 

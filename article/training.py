@@ -13,15 +13,15 @@ from sklearn.metrics import mean_squared_error
 data = pd.read_csv('sort_sawayaka_data.csv')
 
 # 不要なカラムを削除
-data.drop(['wait_count', 'day', 'minute'], axis=1, inplace=True)
+data.drop(['wait_count', 'day', 'month'], axis=1, inplace=True)
 
 # 説明変数と目的変数に分割
 X = data.drop('wait_time', axis=1)
 y = data['wait_time']
 
 # 説明変数を数値変数とカテゴリ変数に分割
-numeric_features = ['temperature', 'relative_humidity', 'precipitation', 'rain', 'snowfall', 'consecutive_holidays', 'holiday_count', 'connect_consecutive_holidays', 'connect_holiday_count']
-categorical_features = ['store_name', 'weather_code', 'weekday', 'month', 'hour']
+numeric_features = ['temperature', 'relative_humidity', 'precipitation', 'rain', 'snowfall', 'consecutive_holidays', 'holiday_count', 'connect_consecutive_holidays', 'connect_holiday_count', 'minute']
+categorical_features = ['store_name', 'weather_code', 'weekday', 'hour']
 
 # データをトレーニングセットとテストセットに分割
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
