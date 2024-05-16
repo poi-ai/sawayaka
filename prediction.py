@@ -1,12 +1,17 @@
-import numpy as np
+import config
+import japanize_matplotlib # グラフ日本語表示に必要なので消さない
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import pandas as pd
 import pickle
 import requests
 import time
+from holiday import Holiday
 from log import Log
 from datetime import datetime, timedelta, timezone
 
-class Main():
+
+class Main(Holiday):
     def __init__(self):
         self.log = Log()
 
@@ -14,19 +19,25 @@ class Main():
         self.log.info('さわやか待ち時間更新スクリプト開始')
 
         # 現在時刻を取得
-        now = datetime.now(timezone.utc) + timedelta(hours = 9)
+        self.now = datetime.now(timezone.utc) + timedelta(hours = 9)
 
         # Holidays JP APIから祝日一覧を取得
         holiday_list = self.get_holidays()
 
         # 連休情報の補正
-        holiday_list = self.correction_holidays(holiday_list, now)
+        holiday_list = self.correction_holidays(holiday_list)
 
         # 連休情報の計算
-        consecutive_holidays, holiday_count, connect_consecutive_holidays, connect_holiday_count = self.calc_holidays(holiday_list, now)
+        consecutive_holidays, holiday_count, connect_consecutive_holidays, connect_holiday_count = self.calc_holidays(holiday_list)
 
-        # Meteo APIから1日分の天気データを取得する
+        # Meteo APIから今日1日の天気データを取得する
         weather_info = self.get_weather()
+
+        # 学習済みモデルの読み込み
+        self.get_model()
+
+        # 店舗ごとに画像URLを格納するリスト
+        prediction_image_list = []
 
         # 店舗ごとに予測を行う
         for store_id in range(1, 35):
@@ -42,8 +53,9 @@ class Main():
 
                     # 足りないデータを埋めていく
                     prediction_data['store_name'] = store_id
-                    prediction_data['month'] = now.month
-                    prediction_data['weekday'] = now.weekday
+                    prediction_data['month'] = self.now.month
+                    # prediction_data['minute'] = minute
+                    prediction_data['weekday'] = self.now.weekday
                     prediction_data['consecutive_holidays'] = consecutive_holidays
                     prediction_data['holiday_count'] = holiday_count
                     prediction_data['connect_consecutive_holidays'] = connect_consecutive_holidays
@@ -54,186 +66,22 @@ class Main():
                     wait_time = self.prediction_wait_time(prediction_data)
                     wait_time_list.append(wait_time)
                     before_wait_time = wait_time
+                    #print(f'{hour}:{minute} {wait_time}')
 
-            # TODO 予測データから画像の作成
-            image_path = self.create_prediction_image(wait_time_list)
+            # 予測データから画像の作成
+            image_name, image_path = self.create_prediction_image(wait_time_list, store_id)
 
-            # TODO 予測データの画像投稿,URL取得
-            url = self.post_gyazo_api
+            # 予測データの画像投稿,URL取得
+            image_url = self.post_gyazo_api(image_name, image_path)
 
+            # 予測データの格納
+            prediction_image_list.append({'store_id': store_id, 'image_url': image_url})
 
-        # TODO URLと予測データをHTMLに埋め込みWebサイトへ投稿
+            exit()
+
+        # TODO URLと予測データ(と待ち時間)をHTMLに埋め込みWebサイトへ投稿
 
         self.log.info('さわやか待ち時間更新スクリプト終了')
-
-    def get_holidays(self):
-        '''
-        Holidays JP APIから祝日情報を取得する
-
-        Returns:
-            holidays(dict): 実行日の昨年～来年までの祝日一覧
-
-        '''
-        try:
-            r = requests.get('https://holidays-jp.github.io/api/v1/date.json')
-        except Exception as e:
-            self.log.error(f'祝日情報取得APIエラー\n{e}')
-            return False
-
-        if r.status_code != 200:
-            self.log.error(f'祝日情報取得APIエラー ステータスコード: {r.status_code}')
-            return False
-
-        holidays = r.json()
-
-        if len(holidays) == 0:
-            self.log.error(f'祝日情報取得APIエラー レスポンス情報が空')
-            return False
-
-        return holidays
-
-    def correction_holidays(self, holiday_list, now):
-        '''
-        祝日ではないが休みを取る人が多い日付を祝日リストに追加する
-        (年末年始・お盆の追加)
-
-        Args:
-            holiday_list(dict): 実行日の昨年～来年までの祝日一覧
-            now(datetime.datetime): 現在時刻
-
-        Returns:
-            holiday_list(dict): 修正後の祝日一覧
-
-        '''
-        # 追加対象の日付
-        add_dict = {}
-
-        # 昨年から今年の年末年始を追加
-        add_dict = self.add_holiday_elements(add_dict,
-                                             start_date = now.replace(year = now.year - 1, month = 12, day = 29),
-                                             end_date = now.replace(month = 1, day = 3),
-                                             param_name = '年末年始')
-
-        # 今年のお盆を追加
-        add_dict = self.add_holiday_elements(add_dict,
-                                             start_date = now.replace(month = 8, day = 13),
-                                             end_date = now.replace(month = 8, day = 16),
-                                             param_name = 'お盆')
-
-        # 今年から来年の年末年始を追加
-        add_dict = self.add_holiday_elements(add_dict,
-                                             start_date = now.replace(month = 12, day = 29),
-                                             end_date = now.replace(year = now.year + 1, month = 1, day = 3),
-                                             param_name = '年末年始')
-
-        # 重複削除で祝日情報を合体
-        holiday_list.update(add_dict)
-
-        return holiday_list
-
-    def add_holiday_elements(self, add_dict, start_date, end_date, param_name):
-        '''
-        追加連休情報を祝日フォーマットに沿った形で追加する
-
-        Args:
-            add_dict(dict): 連休情報を格納したい辞書
-            start_date(datetime.datetime): 追加したい連休の初日の日付
-            end_date(datetime.datetime): 追加したい連休の最終日の日付
-            param_name(str): 連休の値名
-
-        Returns:
-            add_dict(dict): 連休情報追加後の辞書
-
-        '''
-        while start_date <= end_date:
-            add_dict[start_date.strftime('%Y-%m-%d')] = param_name
-            start_date += timedelta(days = 1)
-
-        return add_dict
-
-    def calc_holidays(self, holiday_list, now):
-        '''
-        連休日数・連休何日目かを計算する
-
-        Args:
-            holiday_list(dict): 実行日の昨年～来年までの祝日一覧
-            now(datetime.datetime): 現在時刻
-
-        Returns:
-            consecutive_holidays(int): 今日の休みは何連休か
-            holiday_count(int): 今日は連休の何日目か
-            connect_consecutive_holidays(int): 3日以内の営業日を休みにした場合の連休日数
-            connect_holiday_count(int): 3日以内の営業日を休みにした場合の連休何日目か
-
-        '''
-        # 連休日数
-        consecutive_holidays = 0
-        # 連休何日目か
-        holiday_count = 0
-        # 3日以内の営業日を休みにした場合の連休日数
-        connect_consecutive_holidays = 0
-        # 3日以内の営業日を休みにした場合の連休何日目か
-        connect_holiday_count = 0
-
-        # 今日の日付
-        current_date = now.date()
-        # 今日の休日フラグ
-        today_flag = False
-        # 連休フラグ
-        consecutive_flag = True
-        # 平日カウンター
-        weekday_conut = 0
-
-        # 今日の日付以前の休日・祝日チェック
-        while True:
-            # 休日あるいは祝日か
-            if str(current_date) in holiday_list or current_date.weekday() >= 5:
-                if consecutive_flag:
-                    consecutive_holidays += 1
-                    holiday_count += 1
-                    today_flag = True
-                weekday_conut = 0
-            else:
-                consecutive_flag = False
-                weekday_conut += 1
-            connect_consecutive_holidays += 1
-            connect_holiday_count += 1
-
-            # 4日以上平日が続いたら探索終了
-            if weekday_conut == 4:
-                connect_consecutive_holidays -= 4
-                connect_holiday_count -= 4
-                break
-
-            # 1日戻す
-            current_date -= timedelta(days = 1)
-
-        # 明日の日付
-        feture_date = now.date() + timedelta(days = 1)
-        # フラグ／カウンターリセット
-        consecutive_flag = today_flag
-        weekday_conut = 0
-
-        # 明日の日付以降の休日・祝日チェック
-        while True:
-            # 休日あるいは祝日か
-            if str(feture_date) in holiday_list or feture_date.weekday() >= 5:
-                if consecutive_flag:
-                    consecutive_holidays += 1  # 連休日数
-                weekday_conut = 0
-            else:
-                consecutive_flag = False
-                weekday_conut += 1
-            connect_consecutive_holidays += 1 # 3連続連休日数
-
-            if weekday_conut == 4:
-                connect_consecutive_holidays -= 4 # 3連続連休日数
-                break
-
-            # 1日進める
-            feture_date += timedelta(days = 1)
-
-        return consecutive_holidays, holiday_count, connect_consecutive_holidays, connect_holiday_count
 
     def get_weather(self):
         '''
@@ -302,23 +150,107 @@ class Main():
             'hour': hour
         })
 
+    def get_model(self):
+        '''学習済みモデルをインスタンス変数に持たせておく'''
+        with open('./data/rf_trained_model.pkl', 'rb') as f:
+            self.rf_pipeline = pickle.load(f)
+
+        with open('./data/gb_trained_model.pkl', 'rb') as f:
+            self.gb_pipeline = pickle.load(f)
+
+        return True
+
     def prediction_wait_time(self, df, type = 1):
-        '''待ち時間の予想を行う'''
+        '''待ち時間の予測を行う'''
 
         # ランダムフォレスト
         if type == 1:
-            # 学習したランダムフォレストのパイプラインを読み込む
-            with open('./data/rf_trained_model.pkl', 'rb') as f:
-                rf_pipeline = pickle.load(f)
-
-            return rf_pipeline.predict(df).astype(int)[0]
+            return self.rf_pipeline.predict(df).astype(int)[0]
 
         # 勾配ブースティング
         else:
-            with open('./data/gb_trained_model.pkl', 'rb') as f:
-                gb_pipeline = pickle.load(f)
+            return self.gb_pipeline.predict(df).astype(int)[0]
 
-            return gb_pipeline.predict(df).astype(int)[0]
+    def create_prediction_image(self, wait_time_list, store_id):
+        '''
+        予測データをグラフ化・画像化する
+
+        Args:
+            wait_time_list(list[int,int...]): 待ち時間データ
+            store_id(int): 店舗ID
+
+        Returns:
+            file_name(str): 画像ファイル名
+            file_path(str): 画像ファイルパス
+        '''
+
+        # 画像ファイル名・ファイルパス作成
+        file_name = f'{self.now.strftime("%Y%m%d")}_{store_id}'
+        file_path = f'./image/{file_name}.png'
+
+        # 横軸(09:00~23:00)のためのリストを作成
+        start_time = datetime.strptime('09:00', '%H:%M')
+        end_time = datetime.strptime('22:55', '%H:%M')
+        time_intervals = int((end_time - start_time).seconds / 600)
+        times = [start_time + timedelta(minutes=10 * i) for i in range(time_intervals + 1)]
+
+        # グラフを描画
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(times, wait_time_list, linestyle='-', color='b')
+
+        # 横軸のフォーマットを設定
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+        ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=10))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        plt.xticks(rotation=45)
+
+        # グラフのラベルとタイトル
+        ax.set_xlabel('時刻')
+        ax.set_ylabel('待ち時間(分)')
+        ax.set_title(f'TODO店の待ち時間予測（{self.now.strftime("%Y/%m/%d")}）')
+
+        # グリッド表示
+        ax.grid(True)
+
+        # 位置調整(グラフ下に空白追加)
+        plt.subplots_adjust(bottom = 0.15)
+
+        # 画像を保存
+        plt.savefig(file_path)
+        plt.close()
+
+        return file_name, file_path
+
+    def post_gyazo_api(self, image_name, image_path):
+        '''
+        Gyazo APIを用いて画像をアップロードする
+
+        Args:
+            image_name(str): 画像ファイル名
+            image_path(str): 画像ファイルの相対パス
+
+        Returns:
+            image_url(str): アップロード画像のURL
+        '''
+        # ヘッダーの設定
+        headers = {'Authorization': f'Bearer {config.GYAZO_ACCESS_TOKEN}'}
+
+        # 画像のバイナリ変換
+        with open(image_path, 'rb') as f:
+            files = {'imagedata': f.read()}
+
+        # リクエスト送信
+        response = requests.post('https://upload.gyazo.com/api/upload', headers = headers, files = files, data = {'desc': image_name})
+        response.raise_for_status()
+
+        # ステータスチェック
+        if response.status_code != 200:
+            # TODO エラー処理
+            return False
+
+        # レスポンスデータ変換
+        response_data = response.json()
+        return response_data["url"]
 
 m = Main()
 m.main()
