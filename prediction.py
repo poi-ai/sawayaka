@@ -53,8 +53,8 @@ class Main(Holiday):
 
                     # 足りないデータを埋めていく
                     prediction_data['store_name'] = store_id
-                    prediction_data['month'] = self.now.month
-                    # prediction_data['minute'] = minute
+                    #prediction_data['month'] = self.now.month
+                    prediction_data['minute'] = minute
                     prediction_data['weekday'] = self.now.weekday
                     prediction_data['consecutive_holidays'] = consecutive_holidays
                     prediction_data['holiday_count'] = holiday_count
@@ -79,7 +79,12 @@ class Main(Holiday):
 
             exit()
 
-        # TODO URLと予測データ(と待ち時間)をHTMLに埋め込みWebサイトへ投稿
+        # TODO URLと予測データ(と待ち時間)をHTMLに埋め込む
+
+        # TODO はてなブログの記事を更新する
+        # result = self.hatena
+
+        # TODO imgフォルダの画像を全部消す
 
         self.log.info('さわやか待ち時間更新スクリプト終了')
 
@@ -160,7 +165,7 @@ class Main(Holiday):
 
         return True
 
-    def prediction_wait_time(self, df, type = 1):
+    def prediction_wait_time(self, df, type = 2):
         '''待ち時間の予測を行う'''
 
         # ランダムフォレスト
@@ -252,5 +257,34 @@ class Main(Holiday):
         response_data = response.json()
         return response_data["url"]
 
-m = Main()
-m.main()
+    def post_hatena(content):
+        '''
+        はてなブログの記事の更新を行う
+
+        Args:
+        content(str) : 記事内容
+
+        Returns:
+        response(str): 結果
+        '''
+
+        xml = f'''<?xml version="1.0" encoding="utf-8"?>
+                    <entry xmlns="http://www.w3.org/2005/Atom" xmlns:app="http://www.w3.org/2007/app">
+                        <title>さわやか待ち時間予測AI β版(ver.0.1)</title>
+                            <author>
+                                <name>name</name>
+                            </author>
+                        <content type="text/markdown">{content}</content>
+                        <updated>2000-01-01T00:00:00</updated>
+                        <category term="さわやか" />
+                        <category term="ツール" />
+                        <app:control>
+                            <app:draft>no</app:draft>
+                        </app:control>
+                    </entry>'''.encode('UTF-8')
+        response = requests.put(f'{config.URL}/entry/{config.ARTICLE_ID}', auth = (config.ID, config.API_KEY), data = xml)
+        return response
+
+if __name__ == '__main__':
+    m = Main()
+    m.main()

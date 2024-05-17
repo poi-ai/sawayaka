@@ -1,9 +1,12 @@
+### 収集データに、5分前の待ち時間データのカラム・値を追加する
+
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+from datetime import datetime
 
 # CSVファイルの読み込み
-df = pd.read_csv('sawayaka_data.csv')
+df = pd.read_csv('../data/sawayaka_data.csv')
 
 # datetime型の列を作成
 df['datetime'] = pd.to_datetime(df[['month', 'day', 'hour', 'minute']].assign(year=2024), errors='coerce')
@@ -31,4 +34,4 @@ for index, row in tqdm(df.iterrows(), total=len(df)):
 df = df.drop(columns=['datetime', 'before_10min_datetime'])
 
 # 書き換えたCSVファイルを保存
-df.to_csv('update_sawayaka_data.csv', index=False)
+df.to_csv(f'../data/update_sawayaka_data_{datetime.now().strftime('%Y%m%d')}.csv', index=False)
