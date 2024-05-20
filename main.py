@@ -1,19 +1,21 @@
 import csv
-import log
 import os
 import time
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 from holiday import Holiday
+from log import Log
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from store import Store
 
 ###### 待ち時間情報取得／CSV記録用 ######
 
 class Main(Holiday):
     def __init__(self):
-        self.log = log.Log()
+        self.log = Log()
+        self.store = Store()
 
     def main(self):
         self.log.info('さわやか待ち時間記録スクリプト開始')
@@ -47,7 +49,7 @@ class Main(Holiday):
         store_list = []
         for store in soup.find_all('div', class_ = 'shop_info'):
             # データ量圧縮のため、店舗名を独自に割り振った店舗IDに変換
-            store_id = self.change_store_name(store.find('span', class_ = 'name').text)
+            store_id = self.store.get_store_id(store.find('span', class_ = 'name').text)
 
             store_info = {}
             store_info['store_name'] = store_id                                                                      # 店舗名ごとに独自に振り分けた店舗ID
@@ -174,7 +176,7 @@ class Main(Holiday):
         '''
 
         # 格納先のCSVのパスを指定
-        file_path = './data/sawayaka_data.csv'
+        file_path = os.path.join('.', 'data', 'sawayaka_data.csv')
 
         # 既に引数のファイルが存在する場合は追記、そうでない場合は上書き（新規作成）
         mode = 'a' if os.path.exists(file_path) else 'w'
@@ -190,52 +192,6 @@ class Main(Holiday):
                 writer.writerow(row)
 
         return True
-
-    def change_store_name(self, store_name):
-        '''店舗名を独自に割り振った店舗IDへ変換する'''
-        store_info = {
-            '浜松篠ケ瀬店': 1,
-            'イオンモール浜松市野店': 2,
-            '浜松白羽店': 3,
-            '浜松遠鉄店': 4,
-            '浜松和合店': 5,
-            '浜松有玉店': 6,
-            '浜松富塚店': 7,
-            '浜松鴨江店': 8,
-            '浜松高塚店': 9,
-            '浜松高丘店': 10,
-            '浜北店': 11,
-            '細江本店': 12,
-            '湖西浜名湖店': 13,
-            '菊川本店': 14,
-            '掛川本店': 15,
-            '掛川インター店': 16,
-            '袋井本店': 17,
-            '磐田本店': 18,
-            '豊田店': 19,
-            '新静岡セノバ店': 20,
-            '静岡瀬名川店': 21,
-            '静岡池田店': 22,
-            '静岡インター店': 23,
-            '焼津店': 24,
-            '藤枝築地店': 25,
-            '島田店': 26,
-            '吉田店': 27,
-            '御殿場プレミアム・アウトレット店': 28,
-            '御殿場インター店': 29,
-            '函南店': 30,
-            '長泉店': 31,
-            '沼津学園通り店': 32,
-            '富士鷹岡店': 33,
-            '富士錦店': 34
-        }
-
-        # 合致する店舗のIDを返す
-        if store_name in store_info:
-            return store_info[store_name]
-        else:
-            # 新店舗設立などでリストに存在しない場合は、元の店舗名のまま返す
-            return store_name
 
 if __name__ == '__main__':
     m = Main()

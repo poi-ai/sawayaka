@@ -1,19 +1,22 @@
 import config
 import japanize_matplotlib # グラフ日本語表示に必要なので消さない
+import os
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 import pickle
 import requests
 import time
+import shutil
 from holiday import Holiday
 from log import Log
 from datetime import datetime, timedelta, timezone
-
+from store import Store
 
 class Main(Holiday):
     def __init__(self):
         self.log = Log()
+        self.store = Store()
 
     def main(self):
         self.log.info('さわやか待ち時間更新スクリプト開始')
@@ -40,7 +43,7 @@ class Main(Holiday):
         prediction_image_list = []
 
         # 店舗ごとに予測を行う
-        for store_id in range(1, 35):
+        for store_id in range(28, 30):
             # 待ち時間設定用
             before_wait_time = -1
             wait_time_list = []
@@ -53,7 +56,7 @@ class Main(Holiday):
 
                     # 足りないデータを埋めていく
                     prediction_data['store_name'] = store_id
-                    #prediction_data['month'] = self.now.month
+                    #prediction_data['month'] = self.now.month # まだ1年分のデータがたまってないので使わない
                     prediction_data['minute'] = minute
                     prediction_data['weekday'] = self.now.weekday
                     prediction_data['consecutive_holidays'] = consecutive_holidays
@@ -77,14 +80,18 @@ class Main(Holiday):
             # 予測データの格納
             prediction_image_list.append({'store_id': store_id, 'image_url': image_url})
 
-            exit()
+        # 予測データから記事のHTMLを作成する
+        html = self.create_html(prediction_image_list)
 
-        # TODO URLと予測データ(と待ち時間)をHTMLに埋め込む
+        print(html)
 
         # TODO はてなブログの記事を更新する
-        # result = self.hatena
+        # result = self.post_hatena(html)
 
         # TODO imgフォルダの画像を全部消す
+        result = self.delete_image_folder()
+
+        # TODO GYAZOに上げた使わなくなった予測画像の削除
 
         self.log.info('さわやか待ち時間更新スクリプト終了')
 
@@ -157,15 +164,15 @@ class Main(Holiday):
 
     def get_model(self):
         '''学習済みモデルをインスタンス変数に持たせておく'''
-        with open('./data/rf_trained_model.pkl', 'rb') as f:
+        with open(os.path.join('.', 'data', 'rf_trained_model.pkl'), 'rb') as f:
             self.rf_pipeline = pickle.load(f)
 
-        with open('./data/gb_trained_model.pkl', 'rb') as f:
+        with open(os.path.join('.', 'data', 'gb_trained_model.pkl'), 'rb') as f:
             self.gb_pipeline = pickle.load(f)
 
         return True
 
-    def prediction_wait_time(self, df, type = 2):
+    def prediction_wait_time(self, df, type = 1):
         '''待ち時間の予測を行う'''
 
         # ランダムフォレスト
@@ -212,7 +219,7 @@ class Main(Holiday):
         # グラフのラベルとタイトル
         ax.set_xlabel('時刻')
         ax.set_ylabel('待ち時間(分)')
-        ax.set_title(f'TODO店の待ち時間予測（{self.now.strftime("%Y/%m/%d")}）')
+        ax.set_title(f'{self.store.get_store_name(store_id)}の待ち時間予測（{self.now.strftime("%Y/%m/%d")}）')
 
         # グリッド表示
         ax.grid(True)
@@ -226,6 +233,34 @@ class Main(Holiday):
 
         return file_name, file_path
 
+    def create_html(self, prediction_data):
+        '''
+        予測データの画像URL(と待ち時間)から記事のHTMLを作成する
+
+        Args:
+            prediction_data(dict): 予測データ
+                store_id(int): 店舗に割り振ったID
+                image_url(str): 1日の待ち時間の予測画像のURL
+
+        Returns:
+            html(str): 記事のHTML
+        '''
+        html = f'''
+            静岡のハンバ―グレストランさわやかの非公式待ち時間予測AI(β版)です。<br>
+            まだまだ精度は高くないため、あくまで参考程度にご活用ください。<br>
+            <br>
+            最終更新：{self.now.strftime("%Y/%m/%d %H:%M")}
+        '''
+
+        # 店舗ごとにHTMLの作成
+        for data in prediction_data:
+            html += f'''
+                <h3>{self.store.get_store_name(data['store_id'])}の待ち時間予測情報</h3>
+                <img src="{data['image_url']}">
+            '''
+
+        return html
+
     def post_gyazo_api(self, image_name, image_path):
         '''
         Gyazo APIを用いて画像をアップロードする
@@ -237,6 +272,7 @@ class Main(Holiday):
         Returns:
             image_url(str): アップロード画像のURL
         '''
+        time.sleep(1)
         # ヘッダーの設定
         headers = {'Authorization': f'Bearer {config.GYAZO_ACCESS_TOKEN}'}
 
@@ -250,7 +286,7 @@ class Main(Holiday):
 
         # ステータスチェック
         if response.status_code != 200:
-            # TODO エラー処理
+            self.log.error(f'Gyazo APIでエラー レスポンスコード: {response.status_code}')
             return False
 
         # レスポンスデータ変換
@@ -262,10 +298,10 @@ class Main(Holiday):
         はてなブログの記事の更新を行う
 
         Args:
-        content(str) : 記事内容
+            content(str) : 記事内容
 
         Returns:
-        response(str): 結果
+            response(str): 結果
         '''
 
         xml = f'''<?xml version="1.0" encoding="utf-8"?>
@@ -284,6 +320,30 @@ class Main(Holiday):
                     </entry>'''.encode('UTF-8')
         response = requests.put(f'{config.URL}/entry/{config.ARTICLE_ID}', auth = (config.ID, config.API_KEY), data = xml)
         return response
+
+    def delete_image_folder(self):
+        '''imageフォルダに作成した画像をすべて削除する'''
+        image_folder = os.path.join('.', 'image')
+
+        # imageフォルダが存在するか確認
+        if not os.path.exists(image_folder):
+            self.log.warning('imageフォルダが存在しません')
+            return False
+
+        # imageフォルダ内のすべてのファイルとフォルダをリストアップ
+        files = os.listdir(image_folder)
+
+        for file_name in files:
+            file_path = os.path.join(image_folder, file_name)
+            # .gitkeepファイルをスキップ
+            if file_name == '.gitkeep':
+                continue
+            # ファイルかディレクトリかを確認
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+            elif os.path.isdir(file_path):
+                # ディレクトリの場合はディレクトリごと削除（再帰的に削除）
+                shutil.rmtree(file_path)
 
 if __name__ == '__main__':
     m = Main()
