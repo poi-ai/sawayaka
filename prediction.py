@@ -1,5 +1,6 @@
 import config
 import csv
+import html
 import japanize_matplotlib # グラフ日本語表示に必要なので消さない
 import os
 import matplotlib.pyplot as plt
@@ -44,7 +45,7 @@ class Main(Holiday):
         prediction_image_list = []
 
         # 店舗ごとに予測を行う
-        for store_id in range(28, 30):
+        for store_id in range(1, 35):
             # 待ち時間設定用
             before_wait_time = -1
             wait_time_list = []
@@ -82,12 +83,10 @@ class Main(Holiday):
             prediction_image_list.append({'store_id': store_id, 'image_url': image_url, 'image_id': image_id})
 
         # 予測データから記事のHTMLを作成する
-        html = self.create_html(prediction_image_list)
-
-        print(html)
+        article_html = self.create_html(prediction_image_list)
 
         # TODはてなブログの記事を更新する
-        result = self.post_hatena(html)
+        result = self.post_hatena(html.escape(article_html))
 
         # imgフォルダの画像を全部消す
         result = self.delete_image_folder()
@@ -95,7 +94,7 @@ class Main(Holiday):
         # Gyazoに上げた使わなくなった予測画像の削除
         result = self.delete_gyazo_image()
 
-        # TODO Gyazoに上げた画像IDをCSVに記録
+        # Gyazoに上げた画像IDをCSVに記録
         result = self.record_image_id(prediction_image_list)
 
         self.log.info('さわやか待ち時間更新スクリプト終了')
@@ -249,23 +248,23 @@ class Main(Holiday):
                 (image_id(str): 画像に振られたID)
 
         Returns:
-            html(str): 記事のHTML
+            article_html(str): 記事のHTML
         '''
-        html = f'''
-            静岡のハンバ―グレストランさわやかの非公式待ち時間予測AI(β版)です。<br>
-            まだまだ精度は高くないため、あくまで参考程度にご活用ください。<br>
-            <br>
-            最終更新：{self.now.strftime("%Y/%m/%d %H:%M")}
-        '''
+        article_html = f'''
+静岡のハンバ―グレストランさわやかの非公式待ち時間予測AI(β版)です。<br>
+まだまだ精度は高くないため、あくまで参考程度にご活用ください。<br>
+<br>
+最終更新：{self.now.strftime("%Y/%m/%d %H:%M")}
+'''
 
         # 店舗ごとにHTMLの作成
         for data in prediction_data:
-            html += f'''
-                <h3>{self.store.get_store_name(data['store_id'])}の待ち時間予測情報</h3>
-                <img src="{data['image_url']}">
-            '''
+            article_html += f'''
+<h3>{self.store.get_store_name(data['store_id'])}の待ち時間予測情報</h3>
+<img src="{data['image_url']}">
+'''
 
-        return html
+        return article_html
 
     def record_image_id(self, prediction_data):
         '''
@@ -319,7 +318,7 @@ class Main(Holiday):
         Returns:
             image_url(str): アップロード画像のURL
         '''
-        time.sleep(1)
+        time.sleep(2)
         # ヘッダーの設定
         headers = {'Authorization': f'Bearer {config.GYAZO_ACCESS_TOKEN}'}
 
@@ -337,9 +336,9 @@ class Main(Holiday):
 
         # レスポンスデータ変換
         response_data = response.json()
-        return response_data["url"]
+        return response_data['url'], response_data['image_id']
 
-    def post_hatena(content):
+    def post_hatena(self, content):
         '''
         はてなブログの記事の更新を行う
 
@@ -365,6 +364,7 @@ class Main(Holiday):
                         </app:control>
                     </entry>'''.encode('UTF-8')
         response = requests.put(f'{config.URL}/entry/{config.ARTICLE_ID}', auth = (config.ID, config.API_KEY), data = xml)
+        print(response)
         return response
 
     def delete_image_folder(self):
