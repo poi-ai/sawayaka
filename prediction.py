@@ -1,4 +1,5 @@
 import config
+import csv
 import japanize_matplotlib # グラフ日本語表示に必要なので消さない
 import os
 import matplotlib.pyplot as plt
@@ -75,23 +76,27 @@ class Main(Holiday):
             image_name, image_path = self.create_prediction_image(wait_time_list, store_id)
 
             # 予測データの画像投稿,URL取得
-            image_url = self.post_gyazo_api(image_name, image_path)
+            image_url, image_id = self.post_gyazo_api(image_name, image_path)
 
             # 予測データの格納
-            prediction_image_list.append({'store_id': store_id, 'image_url': image_url})
+            prediction_image_list.append({'store_id': store_id, 'image_url': image_url, 'image_id': image_id})
 
         # 予測データから記事のHTMLを作成する
         html = self.create_html(prediction_image_list)
 
         print(html)
 
-        # TODO はてなブログの記事を更新する
-        # result = self.post_hatena(html)
+        # TODはてなブログの記事を更新する
+        result = self.post_hatena(html)
 
-        # TODO imgフォルダの画像を全部消す
+        # imgフォルダの画像を全部消す
         result = self.delete_image_folder()
 
-        # TODO GYAZOに上げた使わなくなった予測画像の削除
+        # Gyazoに上げた使わなくなった予測画像の削除
+        result = self.delete_gyazo_image()
+
+        # TODO Gyazoに上げた画像IDをCSVに記録
+        result = self.record_image_id(prediction_image_list)
 
         self.log.info('さわやか待ち時間更新スクリプト終了')
 
@@ -241,6 +246,7 @@ class Main(Holiday):
             prediction_data(dict): 予測データ
                 store_id(int): 店舗に割り振ったID
                 image_url(str): 1日の待ち時間の予測画像のURL
+                (image_id(str): 画像に振られたID)
 
         Returns:
             html(str): 記事のHTML
@@ -260,6 +266,47 @@ class Main(Holiday):
             '''
 
         return html
+
+    def record_image_id(self, prediction_data):
+        '''
+        Gyazoにアップロードした画像のIDをCSVに記録する
+
+        Args:
+            prediction_data(dict): 予測データ
+                image_id(str): 画像に振られたID
+                (store_id(int): 店舗に割り振ったID)
+                (image_url(str): 1日の待ち時間の予測画像のURL)
+
+        Returns:
+            result(bool): 実行結果
+        '''
+        # ファイルパスの定義
+        file_path = os.path.join('.', 'manage', 'image_id.csv')
+
+        # timestumpのフォーマットを定義
+        timestump = self.now.strftime('%Y%m%d%H%M')
+
+        # ファイルが存在するか、存在して中身が空でないかをチェック
+        file_exists = os.path.isfile(file_path)
+        file_is_empty = file_exists and os.path.getsize(file_path) == 0
+
+        # 書き込みモードの選択
+        write_header = not file_exists or file_is_empty
+
+        for data in prediction_data:
+            image_id = data['image_id']
+
+            # CSVファイルに追記
+            with open(file_path, mode='a', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                if write_header:
+                    # ヘッダー行を書き込む
+                    writer.writerow(['image_id', 'timestump'])
+                    write_header = False
+                # データ行を書き込む
+                writer.writerow([image_id, timestump])
+
+        return True
 
     def post_gyazo_api(self, image_name, image_path):
         '''
@@ -282,11 +329,10 @@ class Main(Holiday):
 
         # リクエスト送信
         response = requests.post('https://upload.gyazo.com/api/upload', headers = headers, files = files, data = {'desc': image_name})
-        response.raise_for_status()
 
         # ステータスチェック
         if response.status_code != 200:
-            self.log.error(f'Gyazo APIでエラー レスポンスコード: {response.status_code}')
+            self.log.error(f'Gyazo APIの画像アップロードでエラー レスポンスコード: {response.status_code}')
             return False
 
         # レスポンスデータ変換
@@ -344,6 +390,55 @@ class Main(Holiday):
             elif os.path.isdir(file_path):
                 # ディレクトリの場合はディレクトリごと削除（再帰的に削除）
                 shutil.rmtree(file_path)
+
+    def delete_gyazo_image(self):
+        '''
+        Gyazoにアップロードした画像でもう使わないものを削除する
+
+        Returns:
+            result(bool): 実行結果
+        '''
+        file_path = os.path.join('.', 'manage', 'image_id.csv')
+
+        # CSVファイルの存在を確認
+        if not os.path.isfile(file_path):
+            self.log.warning('Gyazo画像ID記録用のCSVが見つかりません')
+            return True
+
+        # CSVファイルを読み込み
+        with open(file_path, mode='r', newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+
+            for row in reader:
+                # 同一時分(=同一プロセス)でないもののみAPIで削除する
+                if row['timestump'] != self.now.strftime('%Y%m%d%H%M'):
+                    result = self.delete_gyazo_api(row['image_id'])
+
+        return True
+
+    def delete_gyazo_api(self, image_id):
+        '''
+        Gyazo APIを用いて過去の画像を削除する
+
+        Args:
+            image_id(str): 画像ID
+
+        Returns:
+            result(bool): 実行結果
+        '''
+        time.sleep(1)
+        # ヘッダーの設定
+        headers = {'Authorization': f'Bearer {config.GYAZO_ACCESS_TOKEN}'}
+
+        # リクエスト送信
+        response = requests.post(f'https://api.gyazo.com/api/images/{image_id}', headers = headers)
+
+        # ステータスチェック TODO 204かチェック
+        #if response.status_code != 204:
+        #    self.log.error(f'Gyazo APIの画像削除でエラー レスポンスコード: {response.status_code}')
+        #    return False
+
+        return True
 
 if __name__ == '__main__':
     m = Main()
