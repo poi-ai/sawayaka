@@ -1,5 +1,5 @@
 import requests
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 class Holiday():
     '''休日関連の共通処理'''

@@ -26,8 +26,11 @@ class Main(Holiday):
         # 現在時刻を取得
         self.now = datetime.now(timezone.utc) + timedelta(hours = 9)
 
-        # Holidays JP APIから祝日一覧を取得
+        # 祝日一覧を取得
         holiday_list = self.get_holidays()
+        if holiday_list == False:
+            self.log.error('祝日データ取得に失敗したため処理を終了します')
+            return False
 
         # 連休情報の補正
         holiday_list = self.correction_holidays(holiday_list)
@@ -37,6 +40,9 @@ class Main(Holiday):
 
         # Meteo APIから今日1日の天気データを取得する
         weather_info = self.get_weather()
+        if weather_info == False:
+            self.log.error('天気データ取得に失敗したため処理を終了します')
+            return False
 
         # 学習済みモデルの読み込み
         self.get_model()
@@ -69,15 +75,19 @@ class Main(Holiday):
 
                     # 加工したデータを学習済みモデルにあて、予測を行う
                     wait_time = self.prediction_wait_time(prediction_data)
+                    if wait_time == False:
+                        pass # TODO
                     wait_time_list.append(wait_time)
                     before_wait_time = wait_time
-                    #print(f'{hour}:{minute} {wait_time}')
 
             # 予測データから画像の作成
             image_name, image_path = self.create_prediction_image(wait_time_list, store_id)
 
             # 予測データの画像投稿,URL取得
             image_url, image_id = self.post_gyazo_api(image_name, image_path)
+            if image_url == False:
+                self.log.error(f'store_id: {store_id}の店舗の画像投稿に失敗したためこの店舗の予測投稿はスキップします')
+                continue
 
             # 予測データの格納
             prediction_image_list.append({'store_id': store_id, 'image_url': image_url, 'image_id': image_id})
@@ -85,8 +95,11 @@ class Main(Holiday):
         # 予測データから記事のHTMLを作成する
         article_html = self.create_html(prediction_image_list)
 
-        # TODはてなブログの記事を更新する
+        # はてなブログの記事を更新する
         result = self.post_hatena(html.escape(article_html))
+        if result == False:
+            self.log.error('はてなブログへの投稿に失敗しました')
+            return False
 
         # imgフォルダの画像を全部消す
         result = self.delete_image_folder()
@@ -168,24 +181,31 @@ class Main(Holiday):
 
     def get_model(self):
         '''学習済みモデルをインスタンス変数に持たせておく'''
-        with open(os.path.join('.', 'data', 'rf_trained_model.pkl'), 'rb') as f:
-            self.rf_pipeline = pickle.load(f)
+        try:
+            with open(os.path.join('.', 'data', 'rf_trained_model.pkl'), 'rb') as f:
+                self.rf_pipeline = pickle.load(f)
 
-        with open(os.path.join('.', 'data', 'gb_trained_model.pkl'), 'rb') as f:
-            self.gb_pipeline = pickle.load(f)
+            with open(os.path.join('.', 'data', 'gb_trained_model.pkl'), 'rb') as f:
+                self.gb_pipeline = pickle.load(f)
+        except Exception as e:
+            self.log.error(f'学習済みモデルの取得に失敗しました\n{e}')
 
         return True
 
     def prediction_wait_time(self, df, type = 1):
         '''待ち時間の予測を行う'''
 
-        # ランダムフォレスト
-        if type == 1:
-            return self.rf_pipeline.predict(df).astype(int)[0]
+        try:
+            # ランダムフォレスト
+            if type == 1:
+                return self.rf_pipeline.predict(df).astype(int)[0]
 
-        # 勾配ブースティング
-        else:
-            return self.gb_pipeline.predict(df).astype(int)[0]
+            # 勾配ブースティング
+            else:
+                return self.gb_pipeline.predict(df).astype(int)[0]
+        except Exception as e:
+            self.log.error('待ち時間の予測に失敗しました')
+            return False
 
     def create_prediction_image(self, wait_time_list, store_id):
         '''
@@ -332,7 +352,7 @@ class Main(Holiday):
         # ステータスチェック
         if response.status_code != 200:
             self.log.error(f'Gyazo APIの画像アップロードでエラー レスポンスコード: {response.status_code}')
-            return False
+            return False, False
 
         # レスポンスデータ変換
         response_data = response.json()
@@ -364,7 +384,12 @@ class Main(Holiday):
                         </app:control>
                     </entry>'''.encode('UTF-8')
         response = requests.put(f'{config.URL}/entry/{config.ARTICLE_ID}', auth = (config.ID, config.API_KEY), data = xml)
-        print(response)
+
+        # ステータスチェック TODO 200か201かチェック
+        #if response.status_code != 200:
+        #    self.log.error(f'はてなへの記事投稿処理でエラー レスポンスコード: {response.status_code}')
+        #    return False
+
         return response
 
     def delete_image_folder(self):
@@ -403,7 +428,7 @@ class Main(Holiday):
         # CSVファイルの存在を確認
         if not os.path.isfile(file_path):
             self.log.warning('Gyazo画像ID記録用のCSVが見つかりません')
-            return True
+            return False
 
         # CSVファイルを読み込み
         with open(file_path, mode='r', newline='') as csvfile:
