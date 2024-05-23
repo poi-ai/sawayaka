@@ -5,6 +5,7 @@ import japanize_matplotlib # グラフ日本語表示に必要なので消さな
 import os
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import numpy as np
 import pandas as pd
 import pickle
 import requests
@@ -19,12 +20,11 @@ class Main(Holiday):
     def __init__(self):
         self.log = Log()
         self.store = Store()
+        self.now = datetime.now(timezone.utc) + timedelta(hours = 9)
+        self.gotenba_stop_time = -1
 
     def main(self):
         self.log.info('さわやか待ち時間更新スクリプト開始')
-
-        # 現在時刻を取得
-        self.now = datetime.now(timezone.utc) + timedelta(hours = 9)
 
         # 祝日一覧を取得
         holiday_list = self.get_holidays()
@@ -45,13 +45,15 @@ class Main(Holiday):
             return False
 
         # 学習済みモデルの読み込み
-        self.get_model()
+        result = self.get_model()
+        if result == False:
+            return False
 
         # 店舗ごとに画像URLを格納するリスト
         prediction_image_list = []
 
         # 店舗ごとに予測を行う
-        for store_id in range(1, 35):
+        for store_id in range(28, 35):
             # 待ち時間設定用
             before_wait_time = -1
             wait_time_list = []
@@ -76,7 +78,7 @@ class Main(Holiday):
                     # 加工したデータを学習済みモデルにあて、予測を行う
                     wait_time = self.prediction_wait_time(prediction_data)
                     if wait_time == False:
-                        pass # TODO
+                        wait_time = -1 # TODO
                     wait_time_list.append(wait_time)
                     before_wait_time = wait_time
 
@@ -189,6 +191,7 @@ class Main(Holiday):
                 self.gb_pipeline = pickle.load(f)
         except Exception as e:
             self.log.error(f'学習済みモデルの取得に失敗しました\n{e}')
+            return False
 
         return True
 
@@ -232,7 +235,33 @@ class Main(Holiday):
 
         # グラフを描画
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(times, wait_time_list, linestyle='-', color='b')
+
+        # 御殿場店以外
+        if store_id != 28:
+            ax.plot(times, wait_time_list, linestyle='-', color='b', label='待ち時間')
+        # 御殿場店
+        else:
+            # 受付中止時刻を超えたらその時間で止まるように
+            stop_boader = [-1.0016 * i * 10 + 586.91 for i in range(len(wait_time_list))]
+            for i in range(len(wait_time_list)):
+                if wait_time_list[i] > stop_boader[i]:
+                    self.gotenba_stop_time = (datetime(2024, 1, 1, 9, 0, 00) + timedelta(minutes = i * 10)).strftime('%H:%M')
+                    wait_time_list[i:] = [wait_time_list[i]] * (len(wait_time_list) - i)
+                    break
+            ax.plot(times, wait_time_list, linestyle='-', color='b', label='待ち時間')
+
+            # 受付中止グラフの追加
+            #x = np.linspace(0, len(times)-1, 400)  # インデックスの範囲でxを作成
+            y = np.array([-1.0016 * x * 2 + 586.91 for x in range(400)])
+
+            # インデックスの範囲を時刻に変換
+            times_x = [start_time + timedelta(minutes=10 * i * (len(times)-1) / 399) for i in range(400)]
+
+            # 線形関数をプロット
+            ax.plot(times_x, y, label='y = -1.0016x + 586.91', color='r')
+
+            # 線より上の領域を赤色で塗りつぶす
+            ax.fill_between(times_x, y, y2=max(y), where=(y < max(y)), color='red', alpha=0.3)
 
         # 横軸のフォーマットを設定
         ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
@@ -279,9 +308,20 @@ class Main(Holiday):
 
         # 店舗ごとにHTMLの作成
         for data in prediction_data:
+            store_id = data['store_id']
+
             article_html += f'''
 <h3>{self.store.get_store_name(data['store_id'])}の待ち時間予測情報</h3>
 <img src="{data['image_url']}">
+'''
+            if store_id== 28:
+                article_html += f'''
+<br>
+<p>※赤枠内に待ち時間が到達するとその日の受付は中止になる可能性が高いです。</p>
+'''
+                if self.gotenba_stop_time != -1:
+                    article_html += f'''
+<p>本日の予測では{self.gotenba_stop_time}頃に受付中止になる見込みです。</p>
 '''
 
         return article_html
