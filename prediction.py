@@ -22,6 +22,7 @@ class Main(Holiday):
         self.store = Store()
         self.now = datetime.now(timezone.utc) + timedelta(hours = 9)
         self.gotenba_stop_time = -1
+        self.holiday_flag = False
 
     def main(self):
         self.log.info('さわやか待ち時間更新スクリプト開始')
@@ -38,6 +39,9 @@ class Main(Holiday):
         # 連休情報の計算
         consecutive_holidays, holiday_count, connect_consecutive_holidays, connect_holiday_count = self.calc_holidays(holiday_list)
 
+        if holiday_count > 0:
+            self.holiday_flag = True
+
         # Meteo APIから今日1日の天気データを取得する
         weather_info = self.get_weather()
         if weather_info == False:
@@ -53,37 +57,53 @@ class Main(Holiday):
         prediction_image_list = []
 
         # 店舗ごとに予測を行う
-        for store_id in range(28, 35):
+        for store_id in range(1, 35):
             # 待ち時間設定用
             before_wait_time = -1
             wait_time_list = []
 
+            # 営業時間(開店時間・閉店時間・オーダーストップの時間)を取得する
+            opening_hours, closing_hours, order_stop_hours = self.store.get_business_hours(store_id, self.now, self.holiday_flag)
+
+            # 営業時間から予測範囲の決定
+            start_time = datetime.strptime(opening_hours, "%H:%M")
+            end_time = datetime.strptime(order_stop_hours, "%H:%M")
+            time_list = [start_time + timedelta(minutes = 10 * i) for i in range(int((end_time - start_time).total_seconds() // 600) + 1)]
+
             # 時間ごとに予測を行う
-            for hour in range(9, 23):
-                for minute in range(0, 60, 10):
-                    # 天気データを予測用のDataFrameに充てる
-                    prediction_data = self.mold_weather_info(weather_info, hour)
+            for prediction_time in time_list:
+                # 天気データを予測用のDataFrameに充てる
+                prediction_data = self.mold_weather_info(weather_info, prediction_time.hour)
 
-                    # 足りないデータを埋めていく
-                    prediction_data['store_name'] = store_id
-                    #prediction_data['month'] = self.now.month # まだ1年分のデータがたまってないので使わない
-                    prediction_data['minute'] = minute
-                    prediction_data['weekday'] = self.now.weekday
-                    prediction_data['consecutive_holidays'] = consecutive_holidays
-                    prediction_data['holiday_count'] = holiday_count
-                    prediction_data['connect_consecutive_holidays'] = connect_consecutive_holidays
-                    prediction_data['connect_holiday_count'] = connect_holiday_count
-                    prediction_data['before_10min_wait_time'] = before_wait_time
+                # 足りないデータを埋めていく
+                prediction_data['store_name'] = store_id
+                #prediction_data['month'] = self.now.month # まだ1年分のデータがたまってないので使わない
+                prediction_data['minute'] = prediction_time.minute
+                prediction_data['weekday'] = self.now.weekday
+                prediction_data['consecutive_holidays'] = consecutive_holidays
+                prediction_data['holiday_count'] = holiday_count
+                prediction_data['connect_consecutive_holidays'] = connect_consecutive_holidays
+                prediction_data['connect_holiday_count'] = connect_holiday_count
+                prediction_data['before_10min_wait_time'] = before_wait_time
 
-                    # 加工したデータを学習済みモデルにあて、予測を行う
-                    wait_time = self.prediction_wait_time(prediction_data)
-                    if wait_time == False:
-                        wait_time = -1 # TODO
-                    wait_time_list.append(wait_time)
-                    before_wait_time = wait_time
+                # 加工したデータを学習済みモデルにあて、予測を行う
+                wait_time = self.prediction_wait_time(prediction_data)
+                if wait_time == False:
+                    wait_time = 0 # TODO 予測失敗時の対応を考える
+
+                # 予測待機時間がマイナスの場合は0にする
+                if wait_time < 0:
+                    wait_time = 0
+
+                wait_time_list.append(wait_time)
+                before_wait_time = wait_time
+
+            # 最後に謎に跳ね上がるので補正を加える TODO 暫定対応なのでどっかで直したい
+            wait_time_list[-1] = wait_time_list[-3]
+            wait_time_list[-2] = wait_time_list[-3]
 
             # 予測データから画像の作成
-            image_name, image_path = self.create_prediction_image(wait_time_list, store_id)
+            image_name, image_path = self.create_prediction_image(wait_time_list, store_id, opening_hours, order_stop_hours)
 
             # 予測データの画像投稿,URL取得
             image_url, image_id = self.post_gyazo_api(image_name, image_path)
@@ -210,13 +230,15 @@ class Main(Holiday):
             self.log.error('待ち時間の予測に失敗しました')
             return False
 
-    def create_prediction_image(self, wait_time_list, store_id):
+    def create_prediction_image(self, wait_time_list, store_id, start_time, end_time):
         '''
         予測データをグラフ化・画像化する
 
         Args:
             wait_time_list(list[int,int...]): 待ち時間データ
             store_id(int): 店舗ID
+            start_time(str,HH:MM): 営業開始時間
+            end_time(str,HH:MM): オーダーストップ時間
 
         Returns:
             file_name(str): 画像ファイル名
@@ -227,32 +249,40 @@ class Main(Holiday):
         file_name = f'{self.now.strftime("%Y%m%d")}_{store_id}'
         file_path = f'./image/{file_name}.png'
 
-        # 横軸(09:00~23:00)のためのリストを作成
-        start_time = datetime.strptime('09:00', '%H:%M')
-        end_time = datetime.strptime('22:55', '%H:%M')
+        # 横軸(時刻)のリストを作成
+        start_time = datetime.strptime(start_time, '%H:%M')
+        end_time = datetime.strptime(end_time, '%H:%M')
+        # 営業時間を10分ごとに分割した場合に何個に分けられるか
         time_intervals = int((end_time - start_time).seconds / 600)
+        # 10分ごとの時間
         times = [start_time + timedelta(minutes=10 * i) for i in range(time_intervals + 1)]
 
         # グラフを描画
         fig, ax = plt.subplots(figsize=(10, 6))
 
-        # 御殿場店以外
+        # 御殿場プレミアム・アウトレット店以外
         if store_id != 28:
             ax.plot(times, wait_time_list, linestyle='-', color='b', label='待ち時間')
-        # 御殿場店
+        # 御殿場プレミアム・アウトレット店
         else:
-            # 受付中止時刻を超えたらその時間で止まるように
-            stop_boader = [-1.0016 * i * 10 + 586.91 for i in range(len(wait_time_list))]
+            # 開店時間まで9:00から何分か(9:00ベースに受付中止時刻の予想をしている)
+            correction_minutes = (start_time - datetime.strptime('09:00', '%H:%M')).total_seconds() / 60
+
+            # 推定受付中止時刻を超えたらその時間で止まるように
+            # -1.0016[係数] x (i * 10 + correction_minutes)[9:00からの経過分数] + 586.91(切片)
+            stop_border = [-1.0016 * (i * 10 + correction_minutes) + 586.91 for i in range(len(wait_time_list))]
+
             for i in range(len(wait_time_list)):
-                if wait_time_list[i] > stop_boader[i]:
-                    self.gotenba_stop_time = (datetime(2024, 1, 1, 9, 0, 00) + timedelta(minutes = i * 10)).strftime('%H:%M')
+                if wait_time_list[i] > stop_border[i]:
+                    self.gotenba_stop_time = (start_time + timedelta(minutes = i * 10)).strftime('%H:%M')
                     wait_time_list[i:] = [wait_time_list[i]] * (len(wait_time_list) - i)
                     break
             ax.plot(times, wait_time_list, linestyle='-', color='b', label='待ち時間')
 
             # 受付中止グラフの追加
             #x = np.linspace(0, len(times)-1, 400)  # インデックスの範囲でxを作成
-            y = np.array([-1.0016 * x * 2 + 586.91 for x in range(400)])
+            # -1.0016[係数] x (x * 営業時間の秒数 / 60(分変換) / 400(分割) + correction_minutes)[9:00からの経過分数] + 586.91(切片)
+            y = np.array([-1.0016 * ((x * (end_time - start_time).seconds / 24000) + correction_minutes) + 586.91 for x in range(400)])
 
             # インデックスの範囲を時刻に変換
             times_x = [start_time + timedelta(minutes=10 * i * (len(times)-1) / 399) for i in range(400)]
@@ -262,6 +292,9 @@ class Main(Holiday):
 
             # 線より上の領域を赤色で塗りつぶす
             ax.fill_between(times_x, y, y2=max(y), where=(y < max(y)), color='red', alpha=0.3)
+
+            # 縦軸の描画範囲を受付中止グラフではなく予測時間に合わせる
+            plt.ylim(min(wait_time_list) - 50, max(wait_time_list) + 20)
 
         # 横軸のフォーマットを設定
         ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
