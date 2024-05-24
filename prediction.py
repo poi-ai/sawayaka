@@ -65,8 +65,8 @@ class Main(Holiday):
             # 営業時間(受付開始時間・開店時間・閉店時間・オーダーストップの時間)を取得する
             reception_hours, opening_hours, closing_hours, order_stop_hours = self.store.get_business_hours(store_id, self.now, self.holiday_flag)
 
-            # 営業時間から予測範囲の決定
-            start_time = datetime.strptime(opening_hours, "%H:%M")
+            # 営業時間から予測範囲の決定(受付開始時間~オーダーストップの時間まで)
+            start_time = datetime.strptime(reception_hours, "%H:%M")
             end_time = datetime.strptime(order_stop_hours, "%H:%M")
             time_list = [start_time + timedelta(minutes = 10 * i) for i in range(int((end_time - start_time).total_seconds() // 600) + 1)]
 
@@ -103,7 +103,7 @@ class Main(Holiday):
             wait_time_list[-2] = wait_time_list[-3]
 
             # 予測データから画像の作成
-            image_name, image_path = self.create_prediction_image(wait_time_list, store_id, opening_hours, order_stop_hours)
+            image_name, image_path = self.create_prediction_image(wait_time_list, store_id, reception_hours, order_stop_hours)
 
             # 予測データの画像投稿,URL取得
             image_url, image_id = self.post_gyazo_api(image_name, image_path)
@@ -237,7 +237,7 @@ class Main(Holiday):
         Args:
             wait_time_list(list[int,int...]): 待ち時間データ
             store_id(int): 店舗ID
-            start_time(str,HH:MM): 営業開始時間
+            start_time(str,HH:MM): 入店受付開始時間
             end_time(str,HH:MM): オーダーストップ時間
 
         Returns:
@@ -295,6 +295,8 @@ class Main(Holiday):
 
             # 縦軸の描画範囲を受付中止グラフではなく予測時間に合わせる
             plt.ylim(min(wait_time_list) - 50, max(wait_time_list) + 20)
+
+        # TODO 営業時間やオーダーストップの時間に縦線入れてわかりやすくしたいなぁ
 
         # 横軸のフォーマットを設定
         ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
