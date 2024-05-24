@@ -62,8 +62,8 @@ class Main(Holiday):
             before_wait_time = -1
             wait_time_list = []
 
-            # 営業時間(開店時間・閉店時間・オーダーストップの時間)を取得する
-            opening_hours, closing_hours, order_stop_hours = self.store.get_business_hours(store_id, self.now, self.holiday_flag)
+            # 営業時間(受付開始時間・開店時間・閉店時間・オーダーストップの時間)を取得する
+            reception_hours, opening_hours, closing_hours, order_stop_hours = self.store.get_business_hours(store_id, self.now, self.holiday_flag)
 
             # 営業時間から予測範囲の決定
             start_time = datetime.strptime(opening_hours, "%H:%M")
@@ -343,14 +343,22 @@ class Main(Holiday):
         for data in prediction_data:
             store_id = data['store_id']
 
+            # ヘッダー
             article_html += f'''
 <h3>{self.store.get_store_name(data['store_id'])}の待ち時間予測情報</h3>
 <img src="{data['image_url']}">
 '''
+            # 営業時間・受付開始時間表示
+            reception, opening, closing, order_stop = self.store.get_business_hours(store_id, self.now, self.holiday_flag)
+            article_html += f'''
+<p>営業時間: {opening}~{closing}（オーダーストップ: {order_stop}）</p>
+<p>入店受付開始時間: {reception}</p>
+'''
+
+            # 御殿場プレミアム・アウトレット店の受付中止表示対応
             if store_id== 28:
                 article_html += f'''
-<br>
-<p>※赤枠内に待ち時間が到達するとその日の受付は中止になる可能性が高いです。</p>
+<p>※赤枠内に待ち時間が到達すると、その日の受付は中止になる可能性が高いです。</p>
 '''
                 if self.gotenba_stop_time != -1:
                     article_html += f'''

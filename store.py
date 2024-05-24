@@ -64,48 +64,49 @@ class Store:
             holiday_flag(bool): 土日祝日か
 
         Returns:
-            opening_hours(str,HHMM): 開店時間
-            closing_hours(str,HHMM): 閉店時間
-            order_stop_hours(str,HHMM): オーダーストップ時間
+            reception_hours(str,HH:MM): 受付開始時間
+            opening_hours(str,HH:MM): 開店時間
+            closing_hours(str,HH:MM): 閉店時間
+            order_stop_hours(str,HH:MM): オーダーストップ時間
         '''
         # イオンモール浜松市野店/新静岡セノバ店
         if store_id == 2:
             if holiday_flag:
-                return '10:45', '21:00', '20:00'
+                return '10:00', '10:45', '21:00', '20:00'
             else:
-                return '11:00', '21:00', '20:00'
+                return '10:00', '11:00', '21:00', '20:00'
 
         # 浜松遠鉄店
         elif store_id == 4:
             if holiday_flag:
-                return '10:45', '22:00', '21:00'
+                return '10:00', '10:45', '22:00', '21:00'
             else:
-                return '11:00', '22:00', '21:00'
+                return '10:00', '11:00', '22:00', '21:00'
 
         # イオンモール浜松市野店/新静岡セノバ店
         elif store_id == 20:
-            return '11:00', '21:00', '20:00'
+            return '10:00', '11:00', '21:00', '20:00'
 
         # 御殿場プレミアム・アウトレット店
         elif store_id == 28:
             if 3 <= now.month <= 11:
-                return '10:30', '20:00', '19:00'
+                return '09:00', '10:30', '20:00', '19:00'
             else:
-                return '10:30', '19:00', '18:00'
+                return '09:00', '10:30', '19:00', '18:00'
 
         # 御殿場インター店
         elif store_id == 29:
             if holiday_flag:
-                return '10:30', '23:00', '22:00'
+                return '09:30', '10:30', '23:00', '22:00'
             else:
-                return '10:45', '23:00', '22:00'
+                return '09:30', '10:45', '23:00', '22:00'
 
         # その他店舗
         else:
             if holiday_flag:
-                return '10:45', '23:00', '22:00'
+                return '10:00', '10:45', '23:00', '22:00'
             else:
-                return '11:00', '23:00', '22:00'
+                return '10:00', '11:00', '23:00', '22:00'
 
     def get_closing_day(self, store_id):
         '''
