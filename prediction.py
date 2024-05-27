@@ -334,9 +334,12 @@ class Main(Holiday):
         Returns:
             article_html(str): 記事のHTML
         '''
+
+        double_space = chr(32) + chr(32)
+
         article_html = f'''
-静岡のハンバ―グレストランさわやかの非公式待ち時間予測AI(β版)です。<br>
-まだまだ精度は高くないため、あくまで参考程度にご活用ください。<br>
+静岡のハンバ―グレストランさわやかの非公式待ち時間予測AI(β版)です。{double_space}
+まだまだ精度は高くないため、あくまで参考程度にご活用ください。{double_space}
 <br>
 最終更新：{self.now.strftime("%Y/%m/%d %H:%M")}
 '''
@@ -345,26 +348,34 @@ class Main(Holiday):
         for data in prediction_data:
             store_id = data['store_id']
 
-            # ヘッダー
-            article_html += f'''
-<h3>{self.store.get_store_name(data['store_id'])}の待ち時間予測情報</h3>
-<img src="{data['image_url']}">
+            # 見出し
+            article_html += f'''<details>
+<summary>{self.store.get_store_name(data['store_id'])}</summary>
 '''
+
             # 営業時間・受付開始時間表示
             reception, opening, closing, order_stop = self.store.get_business_hours(store_id, self.now, self.holiday_flag)
             article_html += f'''
-<p>営業時間: {opening}~{closing}（オーダーストップ: {order_stop}）</p>
-<p>入店受付開始時間: {reception}</p>
+入店受付開始時間: {reception}{double_space}
+営業時間: {opening}~{closing}（オーダーストップ: {order_stop}）{double_space}
 '''
-
+            # 予測グラフ
+            article_html +=f'''
+<img src="{data['image_url']}">{double_space}
+'''
             # 御殿場プレミアム・アウトレット店の受付中止表示対応
             if store_id== 28:
                 article_html += f'''
-<p>※赤枠内に待ち時間が到達すると、その日の受付は中止になる可能性が高いです。</p>
+※赤枠内に待ち時間が到達すると、その日の受付は中止になる可能性が高いです。{double_space}
 '''
+                # グラフが赤枠内に到達する場合
                 if self.gotenba_stop_time != -1:
                     article_html += f'''
-<p>本日の予測では{self.gotenba_stop_time}頃に受付中止になる見込みです。</p>
+本日の予測では{self.gotenba_stop_time}頃に受付中止になる見込みです。</details>{double_space}
+'''
+            else:
+                article_html += '''
+</details>
 '''
 
         return article_html
@@ -518,9 +529,15 @@ class Main(Holiday):
             reader = csv.DictReader(csvfile)
 
             for row in reader:
-                # 同一時分(=同一プロセス)でないもののみAPIで削除する
+                image_id = row['image_id']
+
+                # 同一時分(=同一プロセスで追加された画像)でないもののみAPIで削除する
                 if row['timestump'] != self.now.strftime('%Y%m%d%H%M'):
-                    result = self.delete_gyazo_api(row['image_id'])
+                    # DeleteのGyazo API呼び出し
+                    result = self.delete_gyazo_api(image_id)
+
+                    # 削除したIDのレコードをCSVから削除する
+                    result = self.delete_gyazo_id(image_id)
 
         return True
 
@@ -547,6 +564,39 @@ class Main(Holiday):
         #    return False
 
         return True
+
+    def delete_gyazo_id(self, image_id):
+        '''
+        Gyazoから削除した画像IDのレコードをCSVから削除する
+
+        Args:
+            image_id(str): 画像ID
+
+        Returns:
+            result(bool): 実行結果
+        '''
+        try:
+            csv_path = os.path.join('.', 'manage', 'image_id.csv')
+            rows_to_keep = []
+
+            # CSVファイルを読み込む
+            with open(csv_path, 'r', newline = '', encoding = 'utf-8') as csvfile:
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    # 最左列の値が引数のimage_idと一致しない場合に行を保持する
+                    if row[0] != image_id:
+                        rows_to_keep.append(row)
+
+            # 新しい内容をファイルに書き込む
+            with open(csv_path, 'w', newline = '', encoding = 'utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerows(rows_to_keep)
+        except Exception as e:
+            self.log.error('Gyazoから削除した画像IDのレコードをCSVから除去するのに失敗')
+            return False
+
+        return True
+
 
 if __name__ == '__main__':
     m = Main()
