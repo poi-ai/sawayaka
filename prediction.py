@@ -27,11 +27,12 @@ class Main(Holiday):
     def main(self):
         self.log.info('さわやか待ち時間更新スクリプト開始')
 
-        # 祝日一覧を取得
+        self.log.info('祝日データの取得開始')
         holiday_list = self.get_holidays()
         if holiday_list == False:
             self.log.error('祝日データ取得に失敗したため処理を終了します')
             return False
+        self.log.info('祝日データの取得終了')
 
         # 連休情報の補正
         holiday_list = self.correction_holidays(holiday_list)
@@ -42,16 +43,18 @@ class Main(Holiday):
         if holiday_count > 0:
             self.holiday_flag = True
 
-        # Meteo APIから今日1日の天気データを取得する
+        self.log.info('Meteo APIから今日の天気データを取得開始')
         weather_info = self.get_weather()
         if weather_info == False:
             self.log.error('天気データ取得に失敗したため処理を終了します')
             return False
+        self.log.info('Meteo APIから今日の天気データを取得終了')
 
-        # 学習済みモデルの読み込み
+        self.log.info('学習済みモデルの読み込み開始')
         result = self.get_model()
         if result == False:
             return False
+        self.log.info('学習済みモデルの読み込み終了')
 
         # 店舗ごとに画像URLを格納するリスト
         prediction_image_list = []
@@ -479,6 +482,8 @@ class Main(Holiday):
                     </entry>'''.encode('UTF-8')
         response = requests.put(f'{config.URL}/entry/{config.ARTICLE_ID}', auth = (config.ID, config.API_KEY), data = xml)
 
+        self.log.info(f'レスポンスコードは~~~{response.status_code}!!!')
+
         # ステータスチェック TODO 200か201かチェック
         #if response.status_code != 200:
         #    self.log.error(f'はてなへの記事投稿処理でエラー レスポンスコード: {response.status_code}')
@@ -528,6 +533,8 @@ class Main(Holiday):
         with open(file_path, mode='r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)
 
+            delete_counter = 0
+
             for row in reader:
                 image_id = row['image_id']
 
@@ -535,9 +542,18 @@ class Main(Holiday):
                 if row['timestump'] != self.now.strftime('%Y%m%d%H%M'):
                     # DeleteのGyazo API呼び出し
                     result = self.delete_gyazo_api(image_id)
+                    if result == False:
+                        continue
 
                     # 削除したIDのレコードをCSVから削除する
                     result = self.delete_gyazo_id(image_id)
+                    if result == False:
+                        self.log.info(f'CSV操作に失敗したため、手動でimage_idをCSVから消してください\nimage_id: {image_id}')
+                        continue
+
+                    delete_counter += 1
+
+            self.log.info(f'{delete_counter}枚の写真をGyazoから削除しました')
 
         return True
 
@@ -552,16 +568,18 @@ class Main(Holiday):
             result(bool): 実行結果
         '''
         time.sleep(1)
-        # ヘッダーの設定
+
         headers = {'Authorization': f'Bearer {config.GYAZO_ACCESS_TOKEN}'}
 
-        # リクエスト送信
-        response = requests.post(f'https://api.gyazo.com/api/images/{image_id}', headers = headers)
+        try:
+            response = requests.delete(f'https://api.gyazo.com/api/images/{image_id}', headers = headers)
+        except Exception as e:
+            self.log.error(f'Gyazo APIの画像削除でエラー\n{e}')
 
-        # ステータスチェック TODO 204かチェック
-        #if response.status_code != 204:
-        #    self.log.error(f'Gyazo APIの画像削除でエラー レスポンスコード: {response.status_code}')
-        #    return False
+        # ステータスチェック
+        if response.status_code != 200:
+            self.log.error(f'Gyazo APIの画像削除でエラー レスポンスコード: {response.status_code}')
+            return False
 
         return True
 
@@ -592,7 +610,7 @@ class Main(Holiday):
                 writer = csv.writer(csvfile)
                 writer.writerows(rows_to_keep)
         except Exception as e:
-            self.log.error('Gyazoから削除した画像IDのレコードをCSVから除去するのに失敗')
+            self.log.error(f'Gyazoから削除した画像IDのレコードをCSVから除去するのに失敗\n{e}')
             return False
 
         return True
